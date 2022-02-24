@@ -1,0 +1,363 @@
+
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no, user-scalable=no" />
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css" integrity="sha384-ggOyR0iXCbMQv3Xipma34MD+dH/1fQ784/j6cY/iJTQUOhcWr7x9JvoRxT2MZw1T" crossorigin="anonymous">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.12.1/css/all.min.css" rel="stylesheet">
+    <title>JLG Speedtest</title>
+    <style type="text/css">
+        html,
+        body {
+            border: none;
+            padding: 0;
+            margin: 0;
+            background: #FFFFFF;
+            color: #202020;
+        }
+        
+        body {
+            text-align: center;
+           /* font-family: "Roboto", sans-serif;*/
+        }
+        
+        h1 {
+            color: #404040;
+        }
+        
+        #startStopBtn {
+            display: inline-block;
+            margin: 0 auto;
+            color: #6060AA;
+            background-color: rgba(0, 0, 0, 0);
+            border: 0.15em solid #6060FF;
+            border-radius: 0.3em;
+            transition: all 0.3s;
+            box-sizing: border-box;
+            width: 8em;
+            height: 3em;
+            line-height: 2.7em;
+            cursor: pointer;
+            box-shadow: 0 0 0 rgba(0, 0, 0, 0.1), inset 0 0 0 rgba(0, 0, 0, 0.1);
+        }
+        
+        #startStopBtn:hover {
+            box-shadow: 0 0 2em rgba(0, 0, 0, 0.1), inset 0 0 1em rgba(0, 0, 0, 0.1);
+        }
+        
+        #startStopBtn.running {
+            background-color: #FF3030;
+            border-color: #FF6060;
+            color: #FFFFFF;
+        }
+        
+        #startStopBtn:before {
+            content: "Start";
+        }
+        
+        #startStopBtn.running:before {
+            content: "Abort";
+        }
+        
+        #test {
+            margin-top: 5em;
+            /*margin-bottom: 12em;*/
+        }
+        
+        div.testArea {
+            display: inline-block;
+            width: 16em;
+            height: 12.5em;
+            position: relative;
+            box-sizing: border-box;
+        }
+        
+        div.testName {
+            position: absolute;
+            top: -1.2em;
+            left: 0;
+            width: 100%;
+            font-size: 1.4em;
+            z-index: 9;
+        }
+        
+        div.meterText {
+            position: absolute;
+            bottom: 1.55em;
+            left: 0;
+            width: 100%;
+            font-size: 2.5em;
+            z-index: 9;
+        }
+        
+        div.meterText:empty:before {
+            content: "0.00";
+        }
+        
+        div.unit {
+            position: absolute;
+            bottom: 2em;
+            left: 0;
+            width: 100%;
+            z-index: 9;
+        }
+        
+        div.testArea canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+        }
+        
+        div.testGroup {
+            display: inline-block;
+        }
+        
+        @media all and (max-width:65em) {
+            body {
+                font-size: 1.5vw;
+            }
+        }
+        
+        @media all and (max-width:40em) {
+            body {
+                font-size: 0.8em;
+            }
+            div.testGroup {
+                display: block;
+                margin: 0 auto;
+            }
+        }
+    </style>
+    <script type="text/javascript">
+        function I(id) {
+            return document.getElementById(id);
+        }
+        var meterBk = "#E0E0E0";
+        var dlColor = "#6060AA",
+            ulColor = "#309030",
+            pingColor = "#AA6060",
+            jitColor = "#AA6060";
+        var progColor = "#EEEEEE";
+
+        //CODE FOR GAUGES
+        function drawMeter(c, amount, bk, fg, progress, prog) {
+            var ctx = c.getContext("2d");
+            var dp = window.devicePixelRatio || 1;
+            var cw = c.clientWidth * dp,
+                ch = c.clientHeight * dp;
+            var sizScale = ch * 0.0055;
+            if (c.width == cw && c.height == ch) {
+                ctx.clearRect(0, 0, cw, ch);
+            } else {
+                c.width = cw;
+                c.height = ch;
+            }
+            ctx.beginPath();
+            ctx.strokeStyle = bk;
+            ctx.lineWidth = 16 * sizScale;
+            ctx.arc(c.width / 2, c.height - 58 * sizScale, c.height / 1.8 - ctx.lineWidth, -Math.PI * 1.1, Math.PI * 0.1);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.strokeStyle = fg;
+            ctx.lineWidth = 16 * sizScale;
+            ctx.arc(c.width / 2, c.height - 58 * sizScale, c.height / 1.8 - ctx.lineWidth, -Math.PI * 1.1, amount * Math.PI * 1.2 - Math.PI * 1.1);
+            ctx.stroke();
+            if (typeof progress !== "undefined") {
+                ctx.fillStyle = prog;
+                ctx.fillRect(c.width * 0.3, c.height - 16 * sizScale, c.width * 0.4 * progress, 4 * sizScale);
+            }
+        }
+
+        function mbpsToAmount(s) {
+            return 1 - (1 / (Math.pow(1.3, Math.sqrt(s))));
+        }
+
+        function msToAmount(s) {
+            return 1 - (1 / (Math.pow(1.08, Math.sqrt(s))));
+        }
+
+        //SPEEDTEST AND UI CODE
+        var w = null; //speedtest worker
+        var data = null; //data from worker
+        function startStop() {
+            if (w != null) {
+                //speedtest is running, abort
+                w.postMessage('abort');
+                w = null;
+                data = null;
+                I("startStopBtn").className = "";
+                initUI();
+            } else {
+                //test is not running, begin
+                w = new Worker('speedtest_worker.min.js');
+                w.postMessage('start'); //Add optional parameters as a JSON object to this command
+                I("startStopBtn").className = "running";
+                w.onmessage = function(e) {
+                    data = JSON.parse(e.data);
+                    var status = data.testState;
+                    console.log(data.dlStatus)
+                    if (status >= 4) {
+                        //test completed
+                        I("startStopBtn").className = "";
+                        w = null;
+                        updateUI(true);
+                    }
+                };
+            }
+        }
+        //this function reads the data sent back by the worker and updates the UI
+        function updateUI(forced) {
+            if (!forced && (!data || !w)) return;
+            var status = data.testState;
+            //I("ip").textContent = data.clientIp;
+            I("dlText").textContent = (status == 1 && data.dlStatus == 0) ? "..." : data.dlStatus;
+            drawMeter(I("dlMeter"), mbpsToAmount(Number(data.dlStatus * (status == 1 ? oscillate() : 1))), meterBk, dlColor, Number(data.dlProgress), progColor);
+            // check download
+            if (status == 1) {
+            
+                ( Number(data.dlStatus) > 8.0 ) ?  I("dl_revitReady").textContent = "✔" : I("dl_revitReady").textContent = "❌";
+            }
+            if (status == 3) {
+               
+                ( Number(data.ulStatus) > 8.0 ) ? I("ul_revitReady").textContent = "✔" : I("ul_revitReady").textContent = "❌";
+            }
+            if (status == 2) {
+                ( Number(data.pingStatus) > .50 ) ? I("ping_revitReady").textContent = "✔" : I("ping_revitReady").textContent = "❌";
+                ( Number(data.jitterStatus) > .10 ) ? I("jit_revitReady").textContent = "✔" : I("jit_revitReady").textContent = "❌";
+            }
+            //I("dl_revitReady").textContent = data.dlStatus
+            I("ulText").textContent = (status == 3 && data.ulStatus == 0) ? "..." : data.ulStatus;
+            drawMeter(I("ulMeter"), mbpsToAmount(Number(data.ulStatus * (status == 3 ? oscillate() : 1))), meterBk, ulColor, Number(data.ulProgress), progColor);
+            I("pingText").textContent = data.pingStatus;
+            drawMeter(I("pingMeter"), msToAmount(Number(data.pingStatus * (status == 2 ? oscillate() : 1))), meterBk, pingColor, Number(data.pingProgress), progColor);
+            I("jitText").textContent = data.jitterStatus;
+            drawMeter(I("jitMeter"), msToAmount(Number(data.jitterStatus * (status == 2 ? oscillate() : 1))), meterBk, jitColor, Number(data.pingProgress), progColor);
+        }
+
+        function oscillate() {
+            return 1 + 0.02 * Math.sin(Date.now() / 100);
+        }
+        //poll the status from the worker (this will call updateUI)
+        setInterval(function() {
+            if (w) w.postMessage('status');
+        }, 200);
+        //update the UI every frame
+        window.requestAnimationFrame = window.requestAnimationFrame || window.webkitRequestAnimationFrame || window.mozRequestAnimationFrame || window.msRequestAnimationFrame || (function(callback, element) {
+            setTimeout(callback, 1000 / 60);
+        });
+
+        function frame() {
+            requestAnimationFrame(frame);
+            updateUI();
+        }
+        frame(); //start frame loop
+        //function to (re)initialize UI
+        function initUI() {
+            drawMeter(I("dlMeter"), 0, meterBk, dlColor, 0);
+            drawMeter(I("ulMeter"), 0, meterBk, ulColor, 0);
+            drawMeter(I("pingMeter"), 0, meterBk, pingColor, 0);
+            drawMeter(I("jitMeter"), 0, meterBk, jitColor, 0);
+            I("dlText").textContent = "";
+            I("ulText").textContent = "";
+            I("pingText").textContent = "";
+            I("jitText").textContent = "";
+            I("ip").textContent = "";
+        }
+    </script>
+</head>
+
+<body>
+    <h1>JLG Speedtest</h1>
+    <p><small>Revit Users need a minimum of 8Mbps Down/Up (updated: 3/28/20)</small></p>
+    <div id="startStopBtn" onclick="startStop()"></div>
+    <div id="test">
+        <div class="testGroup">
+            <div class="testArea">
+                <div class="testName"><span id="dl_revitReady"></span>Download</div>
+                <canvas id="dlMeter" class="meter"></canvas>
+                <div id="dlText" class="meterText"></div>
+                <div class="unit">Mbps</div>
+            </div>
+            <div class="testArea">
+                <div class="testName"><span id="ul_revitReady"></span>Upload</div>
+                <canvas id="ulMeter" class="meter"></canvas>
+                <div id="ulText" class="meterText"></div>
+                <div class="unit">Mbps</div>
+            </div>
+        </div>
+        <div class="testGroup">
+            <div class="testArea">
+                <div class="testName"><span id="ping_revitReady"></span>Ping</div>
+                <canvas id="pingMeter" class="meter"></canvas>
+                <div id="pingText" class="meterText"></div>
+                <div class="unit">ms</div>
+            </div>
+            <div class="testArea">
+                <div class="testName"><span id="jit_revitReady"></span>Jitter</div>
+                <canvas id="jitMeter" class="meter"></canvas>
+                <div id="jitText" class="meterText"></div>
+                <div class="unit">ms</div>
+            </div>
+        </div>
+        <div id="ipArea">
+            IP Address: <span id="ip"></span>
+        </div>
+    </div>
+    <script type="text/javascript">
+        setTimeout(initUI, 100);
+    </script>
+    <hr>
+    <div class="container-fluid text-left">
+        <h3 class="text-center">JLG Production Business Continuity Plan</h3>
+        <div class="row">
+            <div class="col">
+                <div class="alert alert-primary" role="alert">
+                    <h4 class="alert-heading"><i class="fas fa-laptop-medical"></i> Support</h4>
+                    <p>If you are having connectivity problems, please email support: </p>
+                    <ul>
+                        <li><a href="mailto:Support@JLGarchitects.com">Support@JLGarchitects.com</a></li>
+                        <li><a href="mailto:Revit@jlgarchitect.com">Revit@jlgarchitect.com</a></li>
+                        <li>Your support and management team will be available assist at any time. </li>
+                    </ul>
+                  </div>
+            </div>
+        </div>
+        <div class="row">
+            <div class="col">
+                <div class="alert alert-warning" role="alert">
+                    <h4 class="alert-heading"><i class="fas fa-network-wired"></i> Production Remote Work </h4>
+                    <div class="row">
+                        <div class="col-sm"><strong>JLG VPN</strong><ul><li>Revit Server should still be used to as usual and continue to sync work to the central file.</li><li>Do NOT detach models from central.</li></ul></div>
+                        <div class="col-sm"><strong>Virtual meetings</strong><ul><li>Clear, concise communication is the backbone of our business.  Making sure that our clients know that our virtual capabilities can create continuity in their project process.</li><li>Identify meetings that can be accommodated virtually, this should be nearly all of them.</li><li>Use JLG meeting etiquette.</li></ul></div>
+                        <div class="col-sm"><strong>Revit</strong><ul><li>Opening models daily by creating new local files.<ul><li>When opening the model please use the specify which worksets to open.</li><li><a href="https://knowledge.autodesk.com/support/revit-products/learn-explore/caas/CloudHelp/cloudhelp/2019/ENU/Revit-Collaborate/files/GUID-C4E941F0-C469-4D7F-B441-849606D9A52D-htm.html">How to specify worksets when opening files.</a></li></ul></li><li>Saving locally and syncing<ul><li>Carefully plan your work areas with your team.</li><li>Save locally often.</li><li>Sync your changes as usual – recommended every 30 mins.</li></ul></li></ul></div>
+                        <div class="col-sm"><strong>Bluebeam</strong><ul><li>Continue to use Sessions and Projects to coordinate remotely. </li>
+                            <li>Supplement with Microsoft Teams Meetings</li></ul></div>
+                    </div>
+                  </div>
+            </div>
+        </div>
+        <div class="row">
+            <div class="col">
+                <div class="alert alert-info" role="alert">
+                    <h4 class="alert-heading"><i class="fas fa-tv"></i> Equipment Borrowing </h4>
+                    <ul>
+                        <li>Department contingent
+                            <ul>
+                                <li>All JLG employees work from mobile computing (tablet or laptop, power cords, mice, and headsets).  While there is convenience in working on multiple monitors JLG maintains the policy that office equipment other than your computing device should stay at the office.</li>
+                                <li>Employees that have critical functions for color rendition (Marketing and VizLab) should communicate needs with I.T.</li>
+                                <li>We will update you if any circumstances change. </li>
+                            </ul>
+                        </li>
+                    </ul>
+                  </div>
+            </div>
+        </div>
+    </div>
+</body>
+
+</html>
